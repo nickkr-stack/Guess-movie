@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Угадай фильм</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #111827;
+      color: #f9fafb;
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .title {
+      text-align: center;
+      margin: 0 0 24px;
+      font-size: 32px;
+    }
+
+    .top-panel {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+      min-height: 48px;
+    }
+
+    #newGameBtn {
+      border: none;
+      background: #059669;
+      color: white;
+      padding: 12px 18px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    #newGameBtn:hover {
+      background: #047857;
+    }
+
+    .levels {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+
+    .level {
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #374151;
+      color: white;
+      font-weight: 700;
+      border: 3px solid transparent;
+      transition: 0.2s ease;
+    }
+
+    .level.current {
+      border-color: white;
+      transform: scale(1.05);
+    }
+
+    .level.current.up {
+      background: #16a34a;
+    }
+
+    .level.current.same {
+      background: #6b7280;
+    }
+
+    .level.current.down {
+      background: #dc2626;
+    }
+
+    .game-card {
+      background: #1f2937;
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    }
+
+    .image-wrap {
+      position: relative;
+      width: 100%;
+      min-height: 420px;
+      background: #0b1220;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .image-wrap img {
+      width: 100%;
+      max-height: 72vh;
+      object-fit: contain;
+      display: block;
+    }
+
+    .image-loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(11, 18, 32, 0.82);
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .round-info {
+      padding: 18px 20px 8px;
+      text-align: center;
+      font-size: 18px;
+    }
+
+    .answers {
+      padding: 0 20px 24px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .answer-btn {
+      border: none;
+      background: #2563eb;
+      color: white;
+      border-radius: 12px;
+      cursor: pointer;
+      height: 68px;
+      min-height: 68px;
+      max-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      line-height: 1.15;
+      padding: 8px 10px;
+      overflow: hidden;
+      word-break: break-word;
+      white-space: normal;
+      transition: opacity 0.22s ease, transform 0.22s ease, background-color 0.22s ease;
+    }
+
+    .answer-btn:hover {
+      background: #1d4ed8;
+    }
+
+    .answer-btn.wrong-anim {
+      background: #dc2626 !important;
+      transform: scale(0.96);
+      opacity: 0;
+    }
+
+    .answer-btn.hidden-answer {
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .start-hint,
+    .message {
+      text-align: center;
+      margin-top: 18px;
+      font-size: 18px;
+    }
+
+    .message {
+      font-weight: 700;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1 class="title">Угадай фильм по кадру</h1>
+
+    <div class="top-panel">
+      <button id="newGameBtn" class="hidden">Новая игра</button>
+    </div>
+
+    <div id="levels" class="levels"></div>
+
+    <div class="game-card hidden" id="gameCard">
+      <div class="image-wrap">
+        <img id="frameImage" alt="Кадр из фильма" />
+        <div id="imageLoading" class="image-loading">Загрузка кадра...</div>
+      </div>
+
+      <div class="round-info">
+        Ошибок в этом раунде: <strong id="mistakesCount">0</strong>
+      </div>
+
+      <div id="answers" class="answers"></div>
+    </div>
+
+    <div id="startHint" class="start-hint">
+      Загрузка базы фильмов...
+    </div>
+
+    <div id="message" class="message hidden"></div>
+  </div>
+
+  <script>
+    const MAX_LEVEL = 10;
+    const DATA_URL = "./tmdb_ru_filtered_with_frame_urls.json";
+
+    let movies = [];
+    let spawnableMovies = [];
+    let uniqueTitlesPool = [];
+
+    let currentLevel = 1;
+    let currentRoundMistakes = 0;
+    let currentRound = null;
+    let lastLevelChange = "same";
+    let gameWon = false;
+
+    const imageCache = new Set();
+
+    const newGameBtn = document.getElementById("newGameBtn");
+    const levelsEl = document.getElementById("levels");
+    const gameCard = document.getElementById("gameCard");
+    const frameImage = document.getElementById("frameImage");
+    const imageLoading = document.getElementById("imageLoading");
+    const mistakesCountEl = document.getElementById("mistakesCount");
+    const answersEl = document.getElementById("answers");
+    const startHint = document.getElementById("startHint");
+    const messageEl = document.getElementById("message");
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function randomItem(arr) {
+      return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    function normalizeTitle(title) {
+      return String(title || "").trim();
+    }
+
+    function hasFrames(movie) {
+      return Array.isArray(movie.frame_urls) && movie.frame_urls.length > 0;
+    }
+
+    function getUniqueMoviesByTitle(data) {
+      const map = new Map();
+
+      for (const movie of data) {
+        const title = normalizeTitle(movie.original_title);
+        if (!title) continue;
+
+        if (!map.has(title)) {
+          map.set(title, movie);
+        } else {
+          const saved = map.get(title);
+          if (!hasFrames(saved) && hasFrames(movie)) {
+            map.set(title, movie);
+          }
+        }
+      }
+
+      return Array.from(map.values());
+    }
+
+    function showMessage(text) {
+      messageEl.textContent = text;
+      messageEl.classList.remove("hidden");
+    }
+
+    function hideMessage() {
+      messageEl.textContent = "";
+      messageEl.classList.add("hidden");
+    }
+
+    function renderLevels() {
+      levelsEl.innerHTML = "";
+
+      for (let i = 1; i <= MAX_LEVEL; i++) {
+        const el = document.createElement("div");
+        el.className = "level";
+        el.textContent = i;
+
+        if (i === currentLevel) {
+          el.classList.add("current", lastLevelChange);
+        }
+
+        levelsEl.appendChild(el);
+      }
+    }
+
+    function resetGame() {
+      currentLevel = 1;
+      currentRoundMistakes = 0;
+      currentRound = null;
+      lastLevelChange = "same";
+      gameWon = false;
+
+      mistakesCountEl.textContent = "0";
+      answersEl.innerHTML = "";
+      newGameBtn.classList.add("hidden");
+
+      hideMessage();
+      renderLevels();
+    }
+
+    function updateMistakes() {
+      mistakesCountEl.textContent = String(currentRoundMistakes);
+    }
+
+    async function loadJson() {
+      const response = await fetch(DATA_URL);
+
+      if (!response.ok) {
+        throw new Error("Не удалось загрузить JSON");
+      }
+
+      const parsed = await response.json();
+
+      if (!Array.isArray(parsed)) {
+        throw new Error("JSON должен быть массивом");
+      }
+
+      return parsed;
+    }
+
+    function preparePools(data) {
+      movies = data;
+      uniqueTitlesPool = getUniqueMoviesByTitle(movies);
+      spawnableMovies = uniqueTitlesPool.filter(hasFrames);
+
+      if (spawnableMovies.length === 0) {
+        throw new Error("Нет фильмов с кадрами");
+      }
+
+      if (uniqueTitlesPool.length < 2) {
+        throw new Error("Недостаточно фильмов для игры");
+      }
+    }
+
+    function clampLevel(level) {
+      return Math.max(1, Math.min(MAX_LEVEL, level));
+    }
+
+    function getNextLevel() {
+      if (currentRoundMistakes === 0) {
+        return clampLevel(currentLevel + 1);
+      }
+
+      return clampLevel(currentLevel - (currentRoundMistakes - 1));
+    }
+
+    function buildWrongOptions(correctMovie, count) {
+      const correctTitle = normalizeTitle(correctMovie.original_title);
+
+      const pool = uniqueTitlesPool.filter(m => {
+        const title = normalizeTitle(m.original_title);
+        return title && title !== correctTitle;
+      });
+
+      const shuffledPool = shuffle(pool);
+      const result = [];
+
+      for (const movie of shuffledPool) {
+        if (result.length >= count) break;
+
+        const title = normalizeTitle(movie.original_title);
+        if (!result.some(m => normalizeTitle(m.original_title) === title)) {
+          result.push(movie);
+        }
+      }
+
+      return result;
+    }
+
+    function preloadImage(src) {
+      return new Promise((resolve, reject) => {
+        if (!src) {
+          reject(new Error("Пустой URL кадра"));
+          return;
+        }
+
+        if (imageCache.has(src)) {
+          resolve(src);
+          return;
+        }
+
+        const img = new Image();
+
+        img.onload = () => {
+          imageCache.add(src);
+          resolve(src);
+        };
+
+        img.onerror = () => reject(new Error("Кадр не загрузился"));
+        img.src = src;
+      });
+    }
+
+    function warmUpImageCache(count = 12) {
+      if (!spawnableMovies.length) return;
+
+      const picks = [];
+
+      for (let i = 0; i < count; i++) {
+        const movie = randomItem(spawnableMovies);
+        if (!movie || !movie.frame_urls?.length) continue;
+        const url = randomItem(movie.frame_urls);
+        if (url && !imageCache.has(url)) {
+          picks.push(url);
+        }
+      }
+
+      picks.forEach(url => {
+        const img = new Image();
+        img.onload = () => imageCache.add(url);
+        img.src = url;
+      });
+    }
+
+    async function tryBuildRound() {
+      const correctMovie = randomItem(spawnableMovies);
+      const frame = randomItem(correctMovie.frame_urls);
+      const wrongCount = currentLevel;
+      const wrongMovies = buildWrongOptions(correctMovie, wrongCount);
+
+      const options = shuffle([
+        { title: correctMovie.original_title, isCorrect: true },
+        ...wrongMovies.map(m => ({
+          title: m.original_title,
+          isCorrect: false
+        }))
+      ]);
+
+      const titles = new Set(options.map(o => normalizeTitle(o.title)));
+      if (titles.size !== options.length) {
+        throw new Error("Повтор названий");
+      }
+
+      await preloadImage(frame);
+
+      return {
+        correctMovie,
+        frame,
+        options
+      };
+    }
+
+    async function startRound() {
+      imageLoading.classList.remove("hidden");
+      answersEl.innerHTML = "";
+      updateMistakes();
+
+      let built = false;
+      let attempts = 0;
+
+      while (!built && attempts < 50) {
+        attempts++;
+
+        try {
+          const round = await tryBuildRound();
+          currentRound = round;
+          built = true;
+        } catch (e) {
+          // собираем другой раунд
+        }
+      }
+
+      if (!built) {
+        imageLoading.classList.add("hidden");
+        showMessage("Не удалось собрать раунд");
+        return;
+      }
+
+      frameImage.src = currentRound.frame;
+      currentRoundMistakes = 0;
+      updateMistakes();
+      renderAnswers();
+
+      imageLoading.classList.add("hidden");
+      gameCard.classList.remove("hidden");
+      startHint.classList.add("hidden");
+      hideMessage();
+      renderLevels();
+
+      warmUpImageCache(14);
+    }
+
+    function renderAnswers() {
+      answersEl.innerHTML = "";
+
+      currentRound.options.forEach((opt, index) => {
+        const btn = document.createElement("button");
+        btn.className = "answer-btn";
+        btn.textContent = opt.title;
+        btn.onclick = () => handleAnswer(index, btn);
+        answersEl.appendChild(btn);
+      });
+
+      requestAnimationFrame(fitAnswerButtonText);
+    }
+
+    function fitAnswerButtonText() {
+      const buttons = answersEl.querySelectorAll(".answer-btn");
+
+      buttons.forEach(btn => {
+        let size = 16;
+        btn.style.fontSize = size + "px";
+
+        while (
+          size > 9 &&
+          (btn.scrollHeight > btn.clientHeight || btn.scrollWidth > btn.clientWidth)
+        ) {
+          size -= 1;
+          btn.style.fontSize = size + "px";
+        }
+      });
+    }
+
+    function handleAnswer(index, button) {
+      if (!currentRound || gameWon) return;
+
+      const option = currentRound.options[index];
+
+      if (option.isCorrect) {
+        handleCorrect();
+      } else {
+        currentRoundMistakes++;
+        updateMistakes();
+
+        button.disabled = true;
+        button.classList.add("wrong-anim");
+
+        setTimeout(() => {
+          button.classList.add("hidden-answer");
+        }, 220);
+      }
+    }
+
+    async function handleCorrect() {
+      const prev = currentLevel;
+      const next = getNextLevel();
+
+      if (prev === MAX_LEVEL && currentRoundMistakes === 0) {
+        currentLevel = MAX_LEVEL;
+        lastLevelChange = "up";
+        renderLevels();
+
+        gameWon = true;
+        answersEl.innerHTML = "";
+        newGameBtn.classList.remove("hidden");
+        showMessage("Победа!");
+        return;
+      }
+
+      currentLevel = next;
+
+      if (currentLevel > prev) {
+        lastLevelChange = "up";
+      } else if (currentLevel < prev) {
+        lastLevelChange = "down";
+      } else {
+        lastLevelChange = "same";
+      }
+
+      renderLevels();
+      await startRound();
+    }
+
+    async function newGame() {
+      resetGame();
+      warmUpImageCache(18);
+      await startRound();
+    }
+
+    async function init() {
+      renderLevels();
+      showMessage("Загрузка базы фильмов...");
+
+      try {
+        const data = await loadJson();
+        preparePools(data);
+        await newGame();
+      } catch (error) {
+        startHint.textContent = "Не удалось загрузить игру.";
+        showMessage("Проверь, что файл tmdb_ru_filtered_with_frame_urls.json лежит в корне рядом с index.html");
+      }
+    }
+
+    newGameBtn.onclick = newGame;
+
+    init();
+  </script>
+</body>
+</html>
